@@ -1,0 +1,175 @@
+CREATE TABLE alunos (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    cpf CHAR(11) NOT NULL UNIQUE,
+    telefone VARCHAR(20) NOT NULL,
+    data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE planos (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(100) NOT NULL UNIQUE,
+    valor_mensal_base DECIMAL(10,2) NOT NULL CHECK (valor_mensal_base > 0)
+);
+
+CREATE TABLE modalidades (
+    id SERIAL PRIMARY KEY,
+    plano_id INTEGER NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    sala VARCHAR(50) NOT NULL,
+    capacidade_maxima INTEGER NOT NULL CHECK (capacidade_maxima > 0),
+    disponivel BOOLEAN DEFAULT TRUE,
+    CONSTRAINT fk_modalidade_plano
+        FOREIGN KEY (plano_id)
+        REFERENCES planos(id)
+);
+
+CREATE TABLE matriculas (
+    id SERIAL PRIMARY KEY,
+    aluno_id INTEGER NOT NULL,
+    data_inicio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'Ativa'
+        CHECK (status IN ('Ativa', 'Cancelada', 'Trancada')),
+    CONSTRAINT fk_matricula_aluno
+        FOREIGN KEY (aluno_id)
+        REFERENCES alunos(id)
+);
+
+CREATE TABLE itens_matricula (
+    id SERIAL PRIMARY KEY,
+    matricula_id INTEGER NOT NULL,
+    modalidade_id INTEGER NOT NULL,
+    duracao_meses INTEGER NOT NULL CHECK (duracao_meses > 0),
+    valor_mensal_aplicado DECIMAL(10,2) NOT NULL CHECK (valor_mensal_aplicado > 0),
+    taxa_adesao DECIMAL(10,2) DEFAULT 0.00 CHECK (taxa_adesao >= 0),
+    CONSTRAINT fk_item_matricula
+        FOREIGN KEY (matricula_id)
+        REFERENCES matriculas(id),
+    CONSTRAINT fk_item_modalidade
+        FOREIGN KEY (modalidade_id)
+        REFERENCES modalidades(id)
+);
+
+INSERT INTO planos (nome, valor_mensal_base)
+VALUES
+('VIP Premium', 180.00),
+('Fitness Standard', 120.00),
+('Basic Fit', 80.00);
+
+INSERT INTO modalidades
+(plano_id, nome, sala, capacidade_maxima, disponivel)
+VALUES
+(1, 'Crossfit Pro', 'Arena 01', 20, TRUE),
+(2, 'Pilates Avançado', 'Studio 02', 15, TRUE),
+(3, 'Musculação Livre', 'Arena 03', 30, TRUE);
+
+INSERT INTO alunos
+(nome, email, cpf, telefone)
+VALUES
+('joao Rouba Pao', 'joao@gmail.com', '12345678901', '48999990001'),
+('Maria Da Penha', 'maria@gmail.com', '23456789012', '48999990002'),
+('Pedro Leite', 'pedro@gmail.com', '34567890123', '48999990003');
+
+INSERT INTO matriculas
+(aluno_id, status)
+VALUES
+(1, 'Ativa'),
+(1, 'Ativa'),
+(2, 'Ativa'),
+(3, 'Cancelada');
+
+INSERT INTO itens_matricula
+(matricula_id, modalidade_id, duracao_meses, valor_mensal_aplicado, taxa_adesao)
+VALUES
+(1, 1, 12, 180.00, 100.00),
+(2, 2, 6, 120.00, 50.00),
+(3, 1, 12, 180.00, 80.00),
+(4, 3, 6, 80.00, 30.00);
+
+CREATE VIEW vw_modalidades_custo_estimado AS
+SELECT
+    m.nome AS modalidade,
+    m.sala,
+    p.nome AS plano,
+    p.valor_mensal_base * 1.10 AS valor_mensal_ajustado
+FROM modalidades m
+INNER JOIN planos p
+    ON m.plano_id = p.id
+ORDER BY valor_mensal_ajustado DESC;
+
+CREATE VIEW vw_matriculas_ativas AS
+SELECT
+    a.nome AS aluno,
+    a.cpf,
+    mo.nome AS modalidade,
+    mo.sala,
+    i.duracao_meses,
+    ma.data_inicio
+FROM alunos a
+INNER JOIN matriculas ma
+    ON a.id = ma.aluno_id
+INNER JOIN itens_matricula i
+    ON ma.id = i.matricula_id
+INNER JOIN modalidades mo
+    ON i.modalidade_id = mo.id
+WHERE ma.status = 'Ativa';
+
+CREATE VIEW vw_alunos_vip AS
+SELECT
+    a.nome AS aluno,
+    COUNT(i.id) AS quantidade_contratos_ativos,
+    SUM(
+        (i.valor_mensal_aplicado * i.duracao_meses)
+        + i.taxa_adesao
+    ) AS valor_total_investido
+FROM alunos a
+INNER JOIN matriculas m
+    ON a.id = m.aluno_id
+INNER JOIN itens_matricula i
+    ON m.id = i.matricula_id
+WHERE m.status = 'Ativa'
+GROUP BY a.id, a.nome
+HAVING SUM(
+    (i.valor_mensal_aplicado * i.duracao_meses)
+    + i.taxa_adesao
+) > 1000.00;
+
+SELECT
+    m.nome AS modalidade,
+    m.sala,
+    m.capacidade_maxima,
+    p.nome AS plano,
+    p.valor_mensal_base
+FROM modalidades m
+INNER JOIN planos p
+    ON m.plano_id = p.id
+WHERE m.capacidade_maxima >= 15
+  AND p.valor_mensal_base > 100.00
+  AND m.disponivel = TRUE;
+
+CREATE VIEW vw_faturamento_medio_plano AS
+SELECT
+    p.nome AS plano,
+    SUM(
+        (i.valor_mensal_aplicado * i.duracao_meses)
+        + i.taxa_adesao
+    ) AS faturamento_total_acumulado,
+    AVG(i.duracao_meses) AS media_duracao_contratos
+FROM planos p
+INNER JOIN modalidades mo
+    ON p.id = mo.plano_id
+INNER JOIN itens_matricula i
+    ON mo.id = i.modalidade_id
+INNER JOIN matriculas m
+    ON i.matricula_id = m.id
+WHERE m.status = 'Ativa'
+GROUP BY p.id, p.nome;
+
+SELECT * FROM vw_modalidades_custo_estimado;
+
+SELECT * FROM vw_matriculas_ativas;
+
+SELECT * FROM vw_alunos_vip;
+
+SELECT * FROM vw_faturamento_medio_plano;
